@@ -290,9 +290,9 @@
         <input type="text" id="new-ex-name" placeholder="例：ケーブルフライ">
       </div>
       <div class="target-edit">
-        <div><label>セット数</label><input type="number" id="new-ex-sets" value="3"></div>
-        <div><label>Reps下限</label><input type="number" id="new-ex-repmin" value="8"></div>
-        <div><label>Reps上限</label><input type="number" id="new-ex-repmax" value="12"></div>
+        <div><label>セット数</label><input type="number" inputmode="numeric" pattern="[0-9]*" id="new-ex-sets" value="3"></div>
+        <div><label>Reps下限</label><input type="number" inputmode="numeric" pattern="[0-9]*" id="new-ex-repmin" value="8"></div>
+        <div><label>Reps上限</label><input type="number" inputmode="numeric" pattern="[0-9]*" id="new-ex-repmax" value="12"></div>
       </div>
       <div class="small-btn-row">
         <button class="btn btn-neutral btn-small" id="btn-add-onetime">今日だけ追加</button>
@@ -449,14 +449,25 @@ function getBestWeight(name, excludeDate){
   return best;
 }
 
+/* Find the most recent previous log (before beforeDate) that contains this exercise name,
+   and return its set weights so they can be pre-filled into the next entry. */
+function getLastWeights(name, beforeDate){
+  const candidates = logs.filter(l => l.date < beforeDate && l.exercises.some(e => e.name === name));
+  if(!candidates.length) return null;
+  candidates.sort((a,b)=> a.date < b.date ? 1 : -1);
+  const ex = candidates[0].exercises.find(e => e.name === name);
+  return ex.sets.map(s => s.weight);
+}
+
 /* Build the exercise list for a fresh day, resolving odd/even alternation */
-function buildExercisesForDay(type, sessionNumber){
+function buildExercisesForDay(type, sessionNumber, date){
   const list = template[type];
   return list.map(ex => {
     let name = ex.name;
     if(ex.alt){
       name = (sessionNumber % 2 === 1) ? ex.alt.odd : ex.alt.even;
     }
+    const lastWeights = getLastWeights(name, date);
     return {
       templateId: ex.id,
       name: name,
@@ -467,7 +478,10 @@ function buildExercisesForDay(type, sessionNumber){
       target: ex.target,
       note: ex.note || '',
       oneTime: false,
-      sets: Array.from({length: ex.sets}, ()=>({weight:'', reps:''}))
+      sets: Array.from({length: ex.sets}, (_, i)=>({
+        weight: (lastWeights && lastWeights[i] !== undefined) ? lastWeights[i] : '',
+        reps: ''
+      }))
     };
   });
 }
@@ -512,7 +526,7 @@ function loadDayIntoDraft(type){
   } else {
     if(!type){ currentDraft = null; renderExerciseLogArea(); return; }
     const sessionNumber = countSessionsOfType(type) + 1;
-    currentDraft = { id: 'log_'+Date.now(), date, type, exercises: buildExercisesForDay(type, sessionNumber) };
+    currentDraft = { id: 'log_'+Date.now(), date, type, exercises: buildExercisesForDay(type, sessionNumber, date) };
     document.getElementById('btn-select-'+type).classList.add('sel-'+type);
     notice.style.display = 'none';
   }
@@ -540,9 +554,9 @@ function renderExerciseLogArea(){
       <div class="ex-meta">${ex.target || ''}${ex.note ? ' ／ ' + ex.note : ''}</div>
       <div class="ex-meta" id="pb-${exIdx}" style="color:#b5893f;font-weight:bold;"></div>
       <div class="target-edit">
-        <div><label>セット数</label><input type="number" min="1" value="${ex.targetSets}" data-role="targetSets" data-idx="${exIdx}"></div>
-        <div><label>Reps下限</label><input type="number" min="1" value="${ex.repMin}" data-role="repMin" data-idx="${exIdx}"></div>
-        <div><label>Reps上限</label><input type="number" min="1" value="${ex.repMax}" data-role="repMax" data-idx="${exIdx}"></div>
+        <div><label>セット数</label><input type="number" inputmode="numeric" pattern="[0-9]*" min="1" value="${ex.targetSets}" data-role="targetSets" data-idx="${exIdx}"></div>
+        <div><label>Reps下限</label><input type="number" inputmode="numeric" pattern="[0-9]*" min="1" value="${ex.repMin}" data-role="repMin" data-idx="${exIdx}"></div>
+        <div><label>Reps上限</label><input type="number" inputmode="numeric" pattern="[0-9]*" min="1" value="${ex.repMax}" data-role="repMax" data-idx="${exIdx}"></div>
       </div>
       <div class="sets-container" data-idx="${exIdx}"></div>
       <div class="small-btn-row">
@@ -576,8 +590,11 @@ function renderExerciseLogArea(){
   area.querySelectorAll('[data-action="addset"]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const idx = +btn.dataset.idx;
-      currentDraft.exercises[idx].sets.push({weight:'', reps:''});
-      currentDraft.exercises[idx].targetSets = currentDraft.exercises[idx].sets.length;
+      const ex = currentDraft.exercises[idx];
+      const lastWeights = getLastWeights(ex.name, currentDraft.date);
+      const newWeight = (lastWeights && lastWeights[ex.sets.length] !== undefined) ? lastWeights[ex.sets.length] : '';
+      ex.sets.push({weight:newWeight, reps:''});
+      ex.targetSets = ex.sets.length;
       renderExerciseLogArea();
     });
   });
@@ -633,8 +650,8 @@ function renderSetsForExercise(exIdx){
   container.innerHTML = ex.sets.map((s, sIdx)=>`
     <div class="set-row">
       <span>${sIdx+1}</span>
-      <input type="number" step="0.25" placeholder="重量kg" value="${s.weight}" data-set="${sIdx}" data-field="weight">
-      <input type="number" placeholder="回数" value="${s.reps}" data-set="${sIdx}" data-field="reps">
+      <input type="number" step="0.25" inputmode="decimal" placeholder="重量kg" value="${s.weight}" data-set="${sIdx}" data-field="weight">
+      <input type="number" inputmode="numeric" pattern="[0-9]*" placeholder="回数" value="${s.reps}" data-set="${sIdx}" data-field="reps">
       <span>${ex.repMin}〜${ex.repMax}回</span>
     </div>
   `).join('');
@@ -663,11 +680,15 @@ function addNewExercise(continuous){
   const repMax = +document.getElementById('new-ex-repmax').value || 12;
   if(!name){ toast('種目名を入力してください'); return; }
 
+  const lastWeights = getLastWeights(name, currentDraft.date);
   const newEx = {
     templateId: continuous ? 'custom_'+Date.now() : null,
     name, targetSets: sets, repMin, repMax, rest:'', target:'', note:'',
     oneTime: !continuous,
-    sets: Array.from({length: sets}, ()=>({weight:'', reps:''}))
+    sets: Array.from({length: sets}, (_, i)=>({
+      weight: (lastWeights && lastWeights[i] !== undefined) ? lastWeights[i] : '',
+      reps: ''
+    }))
   };
   currentDraft.exercises.push(newEx);
 
@@ -790,9 +811,9 @@ function renderTemplateList(type, containerId){
         <input type="text" value="${ex.name}" data-field="name" data-type="${type}" data-idx="${idx}">
       </div>
       <div class="target-edit">
-        <div><label>セット数</label><input type="number" value="${ex.sets}" data-field="sets" data-type="${type}" data-idx="${idx}"></div>
-        <div><label>Reps下限</label><input type="number" value="${ex.repMin}" data-field="repMin" data-type="${type}" data-idx="${idx}"></div>
-        <div><label>Reps上限</label><input type="number" value="${ex.repMax}" data-field="repMax" data-type="${type}" data-idx="${idx}"></div>
+        <div><label>セット数</label><input type="number" inputmode="numeric" pattern="[0-9]*" value="${ex.sets}" data-field="sets" data-type="${type}" data-idx="${idx}"></div>
+        <div><label>Reps下限</label><input type="number" inputmode="numeric" pattern="[0-9]*" value="${ex.repMin}" data-field="repMin" data-type="${type}" data-idx="${idx}"></div>
+        <div><label>Reps上限</label><input type="number" inputmode="numeric" pattern="[0-9]*" value="${ex.repMax}" data-field="repMax" data-type="${type}" data-idx="${idx}"></div>
       </div>
       <div class="field-row">
         <label>インターバル</label>

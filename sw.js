@@ -8,7 +8,7 @@
    ※ index.html を書き換えたら CACHE の番号を必ず上げること。
       上げないと古いキャッシュが返り続けて更新が反映されない。
 */
-const CACHE = 'kintore-v2';
+const CACHE = 'kintore-v3';
 const REVALIDATE_TIMEOUT = 3000;   // 裏で更新を待つ上限(ms)
 const ASSETS = [
   './',
