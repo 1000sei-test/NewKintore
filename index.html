@@ -118,15 +118,26 @@
   .exercise-block.pull{border-left:4px solid var(--accent-pull);}
   .ex-title{font-weight:bold;font-size:14px;margin-bottom:2px;}
   .ex-meta{font-size:11.5px;color:var(--text-light);margin-bottom:8px;line-height:1.5;}
-  .set-row{
+  .set-row{margin-bottom:8px;}
+  .set-row-main{
     display:grid;
     grid-template-columns:32px 1fr 1fr auto;
     gap:6px;
     align-items:center;
-    margin-bottom:6px;
+    margin-bottom:4px;
   }
-  .set-row span{font-size:12px;color:var(--text-light);}
-  .set-row input{padding:6px;font-size:13px;}
+  .set-row-main span{font-size:12px;color:var(--text-light);}
+  .set-row-main input{padding:6px;font-size:13px;}
+  .set-memo{
+    width:100%;
+    box-sizing:border-box;
+    padding:5px 6px;
+    font-size:12px;
+    color:var(--text-light);
+    border:1px solid #e3d9c8;
+    border-radius:6px;
+    background:#fffdf9;
+  }
   .target-edit{
     display:grid;
     grid-template-columns:1fr 1fr 1fr;
@@ -450,13 +461,13 @@ function getBestWeight(name, excludeDate){
 }
 
 /* Find the most recent previous log (before beforeDate) that contains this exercise name,
-   and return its set weights so they can be pre-filled into the next entry. */
-function getLastWeights(name, beforeDate){
+   and return its sets (weight + memo) so they can be pre-filled into the next entry. */
+function getLastSets(name, beforeDate){
   const candidates = logs.filter(l => l.date < beforeDate && l.exercises.some(e => e.name === name));
   if(!candidates.length) return null;
   candidates.sort((a,b)=> a.date < b.date ? 1 : -1);
   const ex = candidates[0].exercises.find(e => e.name === name);
-  return ex.sets.map(s => s.weight);
+  return ex.sets.map(s => ({weight: s.weight, memo: s.memo || ''}));
 }
 
 /* Build the exercise list for a fresh day, resolving odd/even alternation */
@@ -467,7 +478,7 @@ function buildExercisesForDay(type, sessionNumber, date){
     if(ex.alt){
       name = (sessionNumber % 2 === 1) ? ex.alt.odd : ex.alt.even;
     }
-    const lastWeights = getLastWeights(name, date);
+    const lastSets = getLastSets(name, date);
     return {
       templateId: ex.id,
       name: name,
@@ -479,8 +490,9 @@ function buildExercisesForDay(type, sessionNumber, date){
       note: ex.note || '',
       oneTime: false,
       sets: Array.from({length: ex.sets}, (_, i)=>({
-        weight: (lastWeights && lastWeights[i] !== undefined) ? lastWeights[i] : '',
-        reps: ''
+        weight: (lastSets && lastSets[i] && lastSets[i].weight !== undefined) ? lastSets[i].weight : '',
+        reps: '',
+        memo: (lastSets && lastSets[i]) ? lastSets[i].memo : ''
       }))
     };
   });
@@ -580,7 +592,7 @@ function renderExerciseLogArea(){
       currentDraft.exercises[idx][role] = val;
       if(role === 'targetSets'){
         const arr = currentDraft.exercises[idx].sets;
-        while(arr.length < val) arr.push({weight:'', reps:''});
+        while(arr.length < val) arr.push({weight:'', reps:'', memo:''});
         while(arr.length > val) arr.pop();
         renderSetsForExercise(idx);
       }
@@ -591,9 +603,9 @@ function renderExerciseLogArea(){
     btn.addEventListener('click', ()=>{
       const idx = +btn.dataset.idx;
       const ex = currentDraft.exercises[idx];
-      const lastWeights = getLastWeights(ex.name, currentDraft.date);
-      const newWeight = (lastWeights && lastWeights[ex.sets.length] !== undefined) ? lastWeights[ex.sets.length] : '';
-      ex.sets.push({weight:newWeight, reps:''});
+      const lastSets = getLastSets(ex.name, currentDraft.date);
+      const prev = lastSets && lastSets[ex.sets.length];
+      ex.sets.push({weight: prev ? prev.weight : '', reps:'', memo: prev ? prev.memo : ''});
       ex.targetSets = ex.sets.length;
       renderExerciseLogArea();
     });
@@ -649,10 +661,13 @@ function renderSetsForExercise(exIdx){
   const ex = currentDraft.exercises[exIdx];
   container.innerHTML = ex.sets.map((s, sIdx)=>`
     <div class="set-row">
-      <span>${sIdx+1}</span>
-      <input type="number" step="0.25" inputmode="decimal" placeholder="重量kg" value="${s.weight}" data-set="${sIdx}" data-field="weight">
-      <input type="number" inputmode="numeric" pattern="[0-9]*" placeholder="回数" value="${s.reps}" data-set="${sIdx}" data-field="reps">
-      <span>${ex.repMin}〜${ex.repMax}回</span>
+      <div class="set-row-main">
+        <span>${sIdx+1}</span>
+        <input type="number" step="0.25" inputmode="decimal" placeholder="重量kg" value="${s.weight}" data-set="${sIdx}" data-field="weight">
+        <input type="number" inputmode="numeric" pattern="[0-9]*" placeholder="回数" value="${s.reps}" data-set="${sIdx}" data-field="reps">
+        <span>${ex.repMin}〜${ex.repMax}回</span>
+      </div>
+      <input type="text" class="set-memo" placeholder="備考（例：アシストチューブ20kg）" value="${s.memo || ''}" data-set="${sIdx}" data-field="memo">
     </div>
   `).join('');
   container.querySelectorAll('input').forEach(inp=>{
@@ -680,14 +695,15 @@ function addNewExercise(continuous){
   const repMax = +document.getElementById('new-ex-repmax').value || 12;
   if(!name){ toast('種目名を入力してください'); return; }
 
-  const lastWeights = getLastWeights(name, currentDraft.date);
+  const lastSets = getLastSets(name, currentDraft.date);
   const newEx = {
     templateId: continuous ? 'custom_'+Date.now() : null,
     name, targetSets: sets, repMin, repMax, rest:'', target:'', note:'',
     oneTime: !continuous,
     sets: Array.from({length: sets}, (_, i)=>({
-      weight: (lastWeights && lastWeights[i] !== undefined) ? lastWeights[i] : '',
-      reps: ''
+      weight: (lastSets && lastSets[i] && lastSets[i].weight !== undefined) ? lastSets[i].weight : '',
+      reps: '',
+      memo: (lastSets && lastSets[i]) ? lastSets[i].memo : ''
     }))
   };
   currentDraft.exercises.push(newEx);
